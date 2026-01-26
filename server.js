@@ -132,13 +132,13 @@ app.put('/api/operator/cars/:id/status', auth, (req, res) => {
 
 // =====================
 // ПУБЛИЧНЫЙ: клиент ищет авто
-const normalizePlate = require('./utils/normalizePlate');
+const normalizePlateIs = require('./utils/normalizePlate');
 
 app.get('/api/public/car-status', (req, res) => {
   const { plate } = req.query;
   if (!plate) return res.status(400).json({ error: 'Номер не указан' });
 
-  const normalized = normalizePlate(plate);
+  const normalized = normalizePlateIs(plate);
 
   db.get(
     `SELECT plate_original AS plate_number, status
