@@ -4,7 +4,13 @@ const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('./db');
-const normalizePlate = require('./utils/normalizePlate');
+const normalizePlate = (plate) => {
+  if (!plate) return '';
+  return plate.toString()
+    .toUpperCase()
+    .replace(/\s/g, '')
+    .replace(/[^A-Z0-9А-Я]/g, ''); // убираем всё кроме букв и цифр
+};
 
 const app = express();
 const SECRET = process.env.JWT_SECRET || 'supersecret'; // лучше из env
@@ -81,28 +87,48 @@ app.get('/api/operator/cars', auth, (req, res) => {
   );
 });
 
+
 // ===== Оператор: добавить авто =====
 app.post('/api/operator/cars', auth, (req, res) => {
-  const { plate, brand, wait_time } = req.body;
+  const { plate_number, brand, wait_time } = req.body;
   const carwashId = req.user.carwashId;
 
-  const normalized = normalizePlate(plate_number);
+  // ✅ Проверка данных
+  console.log('Добавление авто:', { plate_number, brand, wait_time, carwashId, user: req.user });
+  
+  if (!carwashId) {
+    return res.status(400).json({ error: 'Нет привязки к автомойке. Перелогиньтесь.' });
+  }
+  
+  if (!plate_number || !brand) {
+    return res.status(400).json({ error: 'Номер и марка обязательны' });
+  }
 
-  db.run(
-    `INSERT INTO cars 
-     (plate_original, plate_normalized, brand, wait_time, status, carwash_id)
-     VALUES (?, ?, ?, ?, 'В очереди', ?)`,
-    [plate, normalized, brand, wait_time, carwashId],
-    function (err) {
-      if (err) return res.status(500).json({ error: err.message });
+  try {
+    const normalized = normalizePlate(plate_number);
+    
+    db.run(
+      `INSERT INTO cars 
+       (plate_original, plate_normalized, brand, wait_time, status, carwash_id)
+       VALUES (?, ?, ?, ?, 'В очереди', ?)`,
+      [plate_number, normalized, brand, wait_time || 30, carwashId],
+      function (err) {
+        if (err) {
+          console.error('Ошибка SQL:', err);
+          return res.status(500).json({ error: err.message });
+        }
 
-      res.json({
-        id: this.lastID,
-        plate: plate,
-        status: 'В очереди'
-      });
-    }
-  );
+        res.json({
+          id: this.lastID,
+          plate: plate_number,
+          status: 'В очереди'
+        });
+      }
+    );
+  } catch (error) {
+    console.error('Ошибка normalizePlate:', error);
+    res.status(500).json({ error: 'Ошибка обработки номера' });
+  }
 });
 
 // ===== Обновление статуса =====
