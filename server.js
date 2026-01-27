@@ -4,67 +4,68 @@ const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('./db');
-
+const normalizePlate = require('./utils/normalizePlate');
 
 const app = express();
-const SECRET = 'supersecret'; // для JWT
+const SECRET = process.env.JWT_SECRET || 'supersecret'; // лучше из env
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
-app.use(cors());
+// ✅ CORS и middleware ДОЛЖНЫ быть до маршрутов
+app.use(cors({
+  origin: process.env.FRONTEND_URL || '*', // для Render можно '*' или конкретный URL фронта
+  credentials: true
+}));
 app.use(bodyParser.json());
 
+// ✅ Health check для Render (он проверяет, жив ли сервис)
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
-// ===== Регистрация (только для админа, можно добавить вручную) =====
+// ===== Регистрация =====
 app.post('/register', async (req, res) => {
-const { login, password } = req.body;
-const hash = await bcrypt.hash(password, 10);
+  const { login, password } = req.body;
+  const hash = await bcrypt.hash(password, 10);
 
-
-db.run(`INSERT INTO users (login, password_hash) VALUES (?, ?)`, [login, hash], function(err){
-if(err) return res.status(400).json({error: err.message});
-res.json({message: 'Пользователь создан'});
+  db.run(`INSERT INTO users (login, password_hash) VALUES (?, ?)`, [login, hash], function(err){
+    if(err) return res.status(400).json({error: err.message});
+    res.json({message: 'Пользователь создан'});
+  });
 });
-});
-
 
 // ===== Вход =====
 app.post('/login', (req, res) => {
-const { login, password } = req.body;
-db.get(`SELECT * FROM users WHERE login = ?`, [login], async (err, user) => {
-if(err || !user) return res.status(400).json({error: 'Неверный логин'});
+  const { login, password } = req.body;
+  db.get(`SELECT * FROM users WHERE login = ?`, [login], async (err, user) => {
+    if(err || !user) return res.status(400).json({error: 'Неверный логин'});
 
+    const match = await bcrypt.compare(password, user.password_hash);
+    if(!match) return res.status(400).json({error: 'Неверный пароль'});
 
-const match = await bcrypt.compare(password, user.password_hash);
-if(!match) return res.status(400).json({error: 'Неверный пароль'});
-
-
-const token = jwt.sign(
-  {
-    userId: user.id,
-    carwashId: user.carwash_id,
-    role: user.role
-  },
-  SECRET,
-  { expiresIn: '1d' }
-);
-res.json({token});
+    const token = jwt.sign(
+      {
+        userId: user.id,
+        carwashId: user.carwash_id,
+        role: user.role
+      },
+      SECRET,
+      { expiresIn: '1d' }
+    );
+    res.json({token});
+  });
 });
-});
-
 
 // ===== Middleware для авторизации =====
 const auth = (req, res, next) => {
-const header = req.headers['authorization'];
-if(!header) return res.status(401).json({error: 'Нет токена'});
-const token = header.split(' ')[1];
-jwt.verify(token, SECRET, (err, user) => {
-if(err) return res.status(403).json({error: 'Неверный токен'});
-req.user = user;
-next();
-});
+  const header = req.headers['authorization'];
+  if(!header) return res.status(401).json({error: 'Нет токена'});
+  const token = header.split(' ')[1];
+  jwt.verify(token, SECRET, (err, user) => {
+    if(err) return res.status(403).json({error: 'Неверный токен'});
+    req.user = user;
+    next();
+  });
 };
-
 
 // ===== Получение списка авто =====
 app.get('/api/operator/cars', auth, (req, res) => {
@@ -80,12 +81,9 @@ app.get('/api/operator/cars', auth, (req, res) => {
   );
 });
 
-// =====================
-// ОПЕРАТОР: добавить авто
-const normalizePlate = require('./utils/normalizePlate');
-
+// ===== Оператор: добавить авто =====
 app.post('/api/operator/cars', auth, (req, res) => {
-  const { plate_number, brand, wait_time } = req.body;
+  const { plate, brand, wait_time } = req.body;
   const carwashId = req.user.carwashId;
 
   const normalized = normalizePlate(plate_number);
@@ -94,24 +92,24 @@ app.post('/api/operator/cars', auth, (req, res) => {
     `INSERT INTO cars 
      (plate_original, plate_normalized, brand, wait_time, status, carwash_id)
      VALUES (?, ?, ?, ?, 'В очереди', ?)`,
-    [plate_number, normalized, brand, wait_time, carwashId],
+    [plate, normalized, brand, wait_time, carwashId],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
 
       res.json({
         id: this.lastID,
-        plate: plate_number,
+        plate: plate,
         status: 'В очереди'
       });
     }
   );
 });
 
-
+// ===== Обновление статуса =====
 app.put('/api/operator/cars/:id/status', auth, (req, res) => {
   const carId = req.params.id;
   const { status } = req.body;
-  const carwashId = req.user.carwashId; // оператор видит только свои авто
+  const carwashId = req.user.carwashId;
 
   if (!status) return res.status(400).json({ error: 'Статус не указан' });
 
@@ -130,15 +128,12 @@ app.put('/api/operator/cars/:id/status', auth, (req, res) => {
   );
 });
 
-// =====================
-// ПУБЛИЧНЫЙ: клиент ищет авто
-const normalizePlateIs = require('./utils/normalizePlate');
-
+// ===== Публичный поиск =====
 app.get('/api/public/car-status', (req, res) => {
   const { plate } = req.query;
   if (!plate) return res.status(400).json({ error: 'Номер не указан' });
 
-  const normalized = normalizePlateIs(plate);
+  const normalized = normalizePlate(plate);
 
   db.get(
     `SELECT plate_original AS plate_number, status
@@ -156,5 +151,7 @@ app.get('/api/public/car-status', (req, res) => {
   );
 });
 
-
-app.listen(5000, () => console.log('Server running on port 5000'));
+// ✅ Один правильный вызов listen с process.env.PORT!
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
