@@ -162,7 +162,7 @@ app.get('/api/public/car-status', (req, res) => {
   const normalized = normalizePlate(plate);
 
   db.get(
-    `SELECT plate_original AS plate_number, status
+    `SELECT plate_number, status
      FROM cars
      WHERE plate_normalized = ?
      ORDER BY id DESC
