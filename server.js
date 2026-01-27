@@ -85,22 +85,22 @@ app.get('/api/operator/cars', auth, (req, res) => {
 const normalizePlate = require('./utils/normalizePlate');
 
 app.post('/api/operator/cars', auth, (req, res) => {
-  const { plate, brand, wait_time } = req.body;
+  const { plate_number, brand, wait_time } = req.body;
   const carwashId = req.user.carwashId;
 
-  const normalized = normalizePlate(plate);
+  const normalized = normalizePlate(plate_number);
 
   db.run(
     `INSERT INTO cars 
      (plate_original, plate_normalized, brand, wait_time, status, carwash_id)
      VALUES (?, ?, ?, ?, 'В очереди', ?)`,
-    [plate, normalized, brand, wait_time, carwashId],
+    [plate_number, normalized, brand, wait_time, carwashId],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
 
       res.json({
         id: this.lastID,
-        plate: plate,
+        plate: plate_number,
         status: 'В очереди'
       });
     }
