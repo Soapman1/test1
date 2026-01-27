@@ -6,10 +6,23 @@ const jwt = require('jsonwebtoken');
 const db = require('./db');
 const normalizePlate = (plate) => {
   if (!plate) return '';
+  
   return plate.toString()
     .toUpperCase()
     .replace(/\s/g, '')
-    .replace(/[^A-Z0-9А-Я]/g, ''); // убираем всё кроме букв и цифр
+    .replace(/-/g, '')
+    .replace(/[А]/g, 'A')
+    .replace(/[В]/g, 'B')
+    .replace(/[Е]/g, 'E')
+    .replace(/[К]/g, 'K')
+    .replace(/[М]/g, 'M')
+    .replace(/[Н]/g, 'H')
+    .replace(/[О]/g, 'O')
+    .replace(/[Р]/g, 'P')
+    .replace(/[С]/g, 'C')
+    .replace(/[Т]/g, 'T')
+    .replace(/[У]/g, 'Y')
+    .replace(/[Х]/g, 'X');
 };
 
 const app = express();
