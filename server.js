@@ -109,7 +109,7 @@ app.post('/api/operator/cars', auth, (req, res) => {
     
     db.run(
       `INSERT INTO cars 
-       (plate_original, plate_normalized, brand, wait_time, status, carwash_id)
+       (plate_number, plate_normalized, brand, wait_time, status, carwash_id)
        VALUES (?, ?, ?, ?, 'В очереди', ?)`,
       [plate_number, normalized, brand, wait_time || 30, carwashId],
       function (err) {
