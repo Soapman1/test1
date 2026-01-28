@@ -3,7 +3,7 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { Pool } = require('pg'); // ← PostgreSQL драйвер
+const { Pool } = require('pg');
 
 const app = express();
 const SECRET = process.env.JWT_SECRET || 'supersecret';
@@ -13,21 +13,35 @@ const PORT = process.env.PORT || 5000;
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
-    rejectUnauthorized: false // Обязательно для Render
+    rejectUnauthorized: false
   }
 });
 
-// Инициализация таблиц (создаем если нет)
+// ===== CORS ДЛЯ REACT =====
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'https://car-status-frontend.onrender.com', // Укажи свой фронтенд URL
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+app.use(bodyParser.json());
+
+// ===== ЛОГИРОВАНИЕ (для отладки) =====
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`, req.body);
+  next();
+});
+
+// ===== ИНИЦИАЛИЗАЦИЯ БАЗЫ =====
 const initDB = async () => {
   try {
-    // Таблица users (совместимая с ботом)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
         telegram_id BIGINT UNIQUE,
         login VARCHAR(50) UNIQUE NOT NULL,
-        password VARCHAR(100) NOT NULL, -- бот создает без хеша, сайт может хешировать при необходимости
-        password_hash VARCHAR(100), -- для совместимости если сайт хочет хешировать
+        password VARCHAR(100) NOT NULL,
         carwash_name VARCHAR(200),
         owner_name VARCHAR(200),
         subscription_end TIMESTAMP,
@@ -36,7 +50,6 @@ const initDB = async () => {
       )
     `);
 
-    // Таблица cars (твоя существующая)
     await pool.query(`
       CREATE TABLE IF NOT EXISTS cars (
         id SERIAL PRIMARY KEY,
@@ -49,16 +62,15 @@ const initDB = async () => {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
-
-    console.log('✅ Database tables ready');
+    console.log('✅ База данных инициализирована');
   } catch (err) {
-    console.error('❌ Database init error:', err);
+    console.error('❌ Ошибка инициализации:', err);
   }
 };
 
 initDB();
 
-// ===== НОРМАЛИЗАЦИЯ НОМЕРА =====
+// ===== HELPER ДЛЯ НОМЕРОВ =====
 const normalizePlate = (plate) => {
   if (!plate) return '';
   return plate.toString()
@@ -79,42 +91,24 @@ const normalizePlate = (plate) => {
     .replace(/[Х]/g, 'X');
 };
 
-// ===== MIDDLEWARE =====
-app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
-  credentials: true
-}));
-app.use(bodyParser.json());
-
-// Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', db: 'postgresql' });
 });
 
-// ===== РЕГИСТРАЦИЯ (для сайта, если нужно) =====
+// ===== РЕГИСТРАЦИЯ (для сайта) =====
 app.post('/register', async (req, res) => {
-  const { login, password, carwash_name, owner_name } = req.body;
+  const { login, password } = req.body;
   
   try {
-    // Проверяем существует ли
-    const check = await pool.query('SELECT * FROM users WHERE login = $1', [login]);
-    if (check.rows.length > 0) {
-      return res.status(400).json({error: 'Логин уже занят'});
-    }
-
-    // Хешируем пароль (если регистрация через сайт)
     const hash = await bcrypt.hash(password, 10);
-    
     const result = await pool.query(
-      `INSERT INTO users (login, password, password_hash, carwash_name, owner_name) 
-       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [login, password, hash, carwash_name, owner_name]
+      'INSERT INTO users (login, password, password_hash) VALUES ($1, $2, $3) RETURNING id',
+      [login, password, hash]
     );
-    
-    res.json({message: 'Пользователь создан', id: result.rows[0].id});
+    res.json({ message: 'Пользователь создан', id: result.rows[0].id });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({error: err.message});
+    console.error('Ошибка регистрации:', err);
+    res.status(400).json({ error: 'Логин уже занят или ошибка базы' });
   }
 });
 
@@ -122,66 +116,91 @@ app.post('/register', async (req, res) => {
 app.post('/login', async (req, res) => {
   const { login, password } = req.body;
   
+  console.log('Попытка входа:', login); // Debug
+  
   try {
     const result = await pool.query('SELECT * FROM users WHERE login = $1', [login]);
     const user = result.rows[0];
     
-    if (!user) return res.status(400).json({error: 'Неверный логин'});
+    if (!user) {
+      return res.status(400).json({ error: 'Неверный логин' });
+    }
 
-    // Проверяем пароль (может быть в password или password_hash)
+    // Проверка пароля (совместимость с ботом)
     let match = false;
     if (user.password_hash) {
       match = await bcrypt.compare(password, user.password_hash);
     } else {
-      // Если бот создал без хеша (для теста)
+      // Пароль создан ботом (plain text) - для теста
       match = (password === user.password);
     }
+    
+    // Дополнительно можно проверить bcrypt hash если есть
+    if (!match && user.password.startsWith('$2')) {
+      match = await bcrypt.compare(password, user.password);
+    }
 
-    if (!match) return res.status(400).json({error: 'Неверный пароль'});
+    if (!match) {
+      return res.status(400).json({ error: 'Неверный пароль' });
+    }
 
     // Проверка подписки
     const now = new Date();
-    const subEnd = user.subscription_end ? new Date(user.subscription_end) : null;
-    
-    if (!subEnd || subEnd < now) {
-      return res.status(403).json({error: 'Подписка истекла или не активирована'});
+    if (!user.subscription_end || new Date(user.subscription_end) < now) {
+      return res.status(403).json({ error: 'Подписка истекла. Активируйте через бот.' });
     }
 
     const token = jwt.sign(
       {
         userId: user.id,
-        carwashId: user.id, // используем id как carwash_id
-        role: 'owner'
+        carwashId: user.id, // Важно: используем id как carwash_id
+        login: user.login,
+        carwash_name: user.carwash_name
       },
       SECRET,
-      { expiresIn: '1d' }
+      { expiresIn: '7d' }
     );
     
     res.json({
-      token, 
-      carwash_name: user.carwash_name,
-      subscription_end: user.subscription_end
+      token,
+      user: {
+        id: user.id,
+        login: user.login,
+        carwash_name: user.carwash_name
+      }
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({error: err.message});
+    console.error('Ошибка входа:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
 
-// ===== MIDDLEWARE =====
+// ===== MIDDLEWARE ПРОВЕРКИ ТОКЕНА =====
 const auth = (req, res, next) => {
-  const header = req.headers['authorization'];
-  if (!header) return res.status(401).json({error: 'Нет токена'});
+  const authHeader = req.headers['authorization'];
   
-  const token = header.split(' ')[1];
-  jwt.verify(token, SECRET, (err, user) => {
-    if (err) return res.status(403).json({error: 'Неверный токен'});
-    req.user = user;
+  if (!authHeader) {
+    return res.status(403).json({ error: 'Нет заголовка Authorization' });
+  }
+  
+  const token = authHeader.split(' ')[1]; // Bearer TOKEN
+  
+  if (!token) {
+    return res.status(403).json({ error: 'Нет токена' });
+  }
+  
+  try {
+    const decoded = jwt.verify(token, SECRET);
+    req.user = decoded;
+    console.log('Авторизован:', decoded.login); // Debug
     next();
-  });
+  } catch (err) {
+    console.error('Ошибка токена:', err.message);
+    return res.status(401).json({ error: 'Неверный токен' });
+  }
 };
 
-// ===== СПИСОК АВТО =====
+// ===== ПОЛУЧИТЬ СПИСОК АВТО =====
 app.get('/api/operator/cars', auth, async (req, res) => {
   const carwashId = req.user.carwashId;
   
@@ -192,6 +211,7 @@ app.get('/api/operator/cars', auth, async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
+    console.error('Ошибка получения авто:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -200,6 +220,8 @@ app.get('/api/operator/cars', auth, async (req, res) => {
 app.post('/api/operator/cars', auth, async (req, res) => {
   const { plate_number, brand, wait_time } = req.body;
   const carwashId = req.user.carwashId;
+
+  console.log('Добавление авто:', { plate_number, brand, carwashId });
 
   if (!carwashId) {
     return res.status(400).json({ error: 'Нет привязки к автомойке' });
@@ -214,18 +236,19 @@ app.post('/api/operator/cars', auth, async (req, res) => {
     
     const result = await pool.query(
       `INSERT INTO cars (plate_number, plate_normalized, brand, wait_time, status, carwash_id)
-       VALUES ($1, $2, $3, $4, 'В очереди', $5) RETURNING id`,
+       VALUES ($1, $2, $3, $4, 'В очереди', $5) RETURNING id, status`,
       [plate_number, normalized, brand, wait_time || 30, carwashId]
     );
 
     res.json({
       id: result.rows[0].id,
       plate: plate_number,
-      status: 'В очереди'
+      status: result.rows[0].status,
+      message: 'Авто добавлено'
     });
   } catch (error) {
-    console.error('Ошибка добавления:', error);
-    res.status(500).json({ error: error.message });
+    console.error('Ошибка добавления авто:', error);
+    res.status(500).json({ error: 'Ошибка базы данных: ' + error.message });
   }
 });
 
@@ -249,6 +272,7 @@ app.put('/api/operator/cars/:id/status', auth, async (req, res) => {
 
     res.json({ id: carId, status });
   } catch (err) {
+    console.error('Ошибка обновления:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -262,23 +286,36 @@ app.get('/api/public/car-status', async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT plate_number, status FROM cars 
-       WHERE plate_normalized = $1 
+      `SELECT plate_number, status 
+       FROM cars 
+       WHERE plate_normalized = $1 AND status != 'Выдано'
        ORDER BY id DESC LIMIT 1`,
       [normalized]
     );
     
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Не найдено' });
+      return res.status(404).json({ error: 'Авто не найдено' });
     }
 
     res.json(result.rows[0]);
   } catch (err) {
+    console.error('Ошибка поиска:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ===== ЗАПУСК =====
+// ===== 404 ОБРАБОТЧИК =====
+app.use((req, res) => {
+  res.status(404).json({ error: 'Endpoint not found' });
+});
+
+// ===== ОБРАБОТЧИК ОШИБОК =====
+app.use((err, req, res, next) => {
+  console.error('Server error:', err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
+  console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
