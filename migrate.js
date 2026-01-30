@@ -5,7 +5,7 @@ db.serialize(() => {
   console.log('⏳ Обновление структуры БД...');
 
   db.run(`
-    ALTER TABLE cars ADD COLUMN plate_original TEXT
+    ALTER TABLE cars ADD COLUMN plate_number TEXT
   `, err => {
     if (err && !err.message.includes('duplicate')) console.log(err.message);
   });
