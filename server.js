@@ -73,22 +73,17 @@ initDB();
 // ===== HELPER ДЛЯ НОМЕРОВ =====
 const normalizePlate = (plate) => {
   if (!plate) return '';
-  return plate.toString()
-    .toUpperCase()
-    .replace(/\s/g, '')
-    .replace(/-/g, '')
-    .replace(/[А]/g, 'A')
-    .replace(/[В]/g, 'B')
-    .replace(/[Е]/g, 'E')
-    .replace(/[К]/g, 'K')
-    .replace(/[М]/g, 'M')
-    .replace(/[Н]/g, 'H')
-    .replace(/[О]/g, 'O')
-    .replace(/[Р]/g, 'P')
-    .replace(/[С]/g, 'C')
-    .replace(/[Т]/g, 'T')
-    .replace(/[У]/g, 'Y')
-    .replace(/[Х]/g, 'X');
+  const map = {'А':'A','В':'B','Е':'E','К':'K','М':'M','Н':'H','О':'O','Р':'P','С':'C','Т':'T','У':'Y','Х':'X'};
+  return plate.toString().toUpperCase().replace(/\s/g, '').replace(/-/g, '').replace(/[АВЕКМНОРСТУХ]/g, char => map[char] || char);
+};
+
+// ✅ Новая функция валидации
+const isValidPlate = (plate) => {
+  if (!plate || plate.length < 3) return false;
+  const normalized = normalizePlate(plate);
+  // Проверяем что остались только латинские буквы и цифры
+  // Если были буквы вроде Д, Ж, Щ, Я и т.д. — они останутся кириллицей и не пройдут проверку
+  return /^[A-Z0-9]+$/.test(normalized) && normalized.length >= 3;
 };
 
 app.get('/health', (req, res) => {
@@ -220,35 +215,33 @@ app.get('/api/operator/cars', auth, async (req, res) => {
 app.post('/api/operator/cars', auth, async (req, res) => {
   const { plate_number, brand, wait_time } = req.body;
   const carwashId = req.user.carwashId;
-
-  console.log('Добавление авто:', { plate_number, brand, carwashId });
-
+  
   if (!carwashId) {
     return res.status(400).json({ error: 'Нет привязки к автомойке' });
   }
   
-  if (!plate_number || !brand) {
-    return res.status(400).json({ error: 'Номер и марка обязательны' });
-  }
-
-  try {
-    const normalized = normalizePlate(plate_number);
-    
-    const result = await pool.query(
-      `INSERT INTO cars (plate_number, plate_normalized, brand, wait_time, status, carwash_id)
-       VALUES ($1, $2, $3, $4, 'В очереди', $5) RETURNING id, status`,
-      [plate_number, normalized, brand, wait_time || 30, carwashId]
-    );
-
-    res.json({
-      id: result.rows[0].id,
-      plate: plate_number,
-      status: result.rows[0].status,
-      message: 'Авто добавлено'
+  // ✅ Валидация номера
+  if (!isValidPlate(plate_number)) {
+    return res.status(400).json({ 
+      error: 'Неверный формат номера. Допустимы только цифры и буквы: А, В, Е, К, М, Н, О, Р, С, Т, У, Х (и латинские аналоги)' 
     });
-  } catch (error) {
-    console.error('Ошибка добавления авто:', error);
-    res.status(500).json({ error: 'Ошибка базы данных: ' + error.message });
+  }
+  
+  const normalized = normalizePlate(plate_number);
+  const waitTimeNum = parseInt(wait_time) || 30;
+  
+  try {
+    const result = await db.query(
+      `INSERT INTO cars (plate_original, plate_number, plate_normalized, brand, wait_time, status, carwash_id, created_at)
+       VALUES ($1, $2, $3, $4, $5, 'В очереди', $6, CURRENT_TIMESTAMP)
+       RETURNING id, plate_number, status, wait_time, created_at`,
+      [plate_number.toUpperCase(), normalized, normalized, brand.toUpperCase(), waitTimeNum, carwashId]
+    );
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Add car error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -281,25 +274,28 @@ app.put('/api/operator/cars/:id/status', auth, async (req, res) => {
 app.get('/api/public/car-status', async (req, res) => {
   const { plate } = req.query;
   if (!plate) return res.status(400).json({ error: 'Номер не указан' });
-
+  
+  // Можно не валидировать при поиске, но если хочешь — раскомментируй:
+  // if (!isValidPlate(plate)) return res.status(400).json({ error: 'Неверный формат номера' });
+  
   const normalized = normalizePlate(plate);
-
+  
   try {
-    const result = await pool.query(
-      `SELECT plate_number, status 
+    const result = await db.query(
+      `SELECT plate_number, status, wait_time, created_at 
        FROM cars 
-       WHERE plate_normalized = $1 AND status != 'Выдано'
-       ORDER BY id DESC LIMIT 1`,
+       WHERE plate_normalized = $1 
+       ORDER BY created_at DESC 
+       LIMIT 1`,
       [normalized]
     );
     
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Авто не найдено' });
+      return res.status(404).json({ error: 'Не найдено' });
     }
-
+    
     res.json(result.rows[0]);
   } catch (err) {
-    console.error('Ошибка поиска:', err);
     res.status(500).json({ error: err.message });
   }
 });
