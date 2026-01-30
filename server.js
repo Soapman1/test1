@@ -231,7 +231,7 @@ app.post('/api/operator/cars', auth, async (req, res) => {
   const waitTimeNum = parseInt(wait_time) || 30;
   
   try {
-    const result = await db.query(
+    const result = await pool.query(
       `INSERT INTO cars (plate_original, plate_number, plate_normalized, brand, wait_time, status, carwash_id, created_at)
        VALUES ($1, $2, $3, $4, $5, 'В очереди', $6, CURRENT_TIMESTAMP)
        RETURNING id, plate_number, status, wait_time, created_at`,
