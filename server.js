@@ -4,6 +4,7 @@ const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
+const cookieParser = require('cookie-parser');
 
 const app = express();
 const SECRET = process.env.JWT_SECRET || 'supersecret';
@@ -19,13 +20,14 @@ const pool = new Pool({
 
 // ===== CORS ДЛЯ REACT =====
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'https://car-status-frontend.onrender.com', // Укажи свой фронтенд URL
+  origin: process.env.FRONTEND_URL || 'https://car-status-frontend.onrender.com', 
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(bodyParser.json());
+app.use(cookieParser());
 
 // ===== ЛОГИРОВАНИЕ (для отладки) =====
 app.use((req, res, next) => {
@@ -170,28 +172,22 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// ===== MIDDLEWARE ПРОВЕРКИ ТОКЕНА =====
+// ===== MIDDLEWARE ПРОВЕРКИ ТОКЕНА (с cookie) =====
 const auth = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  
-  if (!authHeader) {
-    return res.status(403).json({ error: 'Нет заголовка Authorization' });
-  }
-  
-  const token = authHeader.split(' ')[1]; // Bearer TOKEN
+  const token = req.cookies.auth_token;
   
   if (!token) {
-    return res.status(403).json({ error: 'Нет токена' });
+    return res.status(401).json({ error: 'Не авторизован' });
   }
   
   try {
     const decoded = jwt.verify(token, SECRET);
     req.user = decoded;
-    console.log('Авторизован:', decoded.login); // Debug
+    console.log('Авторизован:', decoded.login);
     next();
   } catch (err) {
     console.error('Ошибка токена:', err.message);
-    return res.status(401).json({ error: 'Неверный токен' });
+    return res.status(403).json({ error: 'Неверный токен' });
   }
 };
 
@@ -364,6 +360,55 @@ app.put('/api/operator/cars/:id', auth, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+
+// ===== ВХОД С COOKIE =====
+app.post('/login', async (req, res) => {
+  const { login, password, rememberMe } = req.body;
+  
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE login = $1', [login]);
+    const user = result.rows[0];
+    
+    if (!user || !await bcrypt.compare(password, user.password_hash || user.password)) {
+      return res.status(400).json({ error: 'Неверный логин или пароль' });
+    }
+
+    const token = jwt.sign(
+      { userId: user.id, carwashId: user.id, login: user.login },
+      SECRET,
+      { expiresIn: rememberMe ? '7d' : '1h' } // Если "запомнить" - 7 дней, иначе 1 час
+    );
+    
+    // Устанавливаем httpOnly cookie (защита от XSS)
+    res.cookie('auth_token', token, {
+      httpOnly: true,        // Недоступно для JS
+      secure: true,          // Только HTTPS (Render использует HTTPS)
+      sameSite: 'strict',    // Защита от CSRF
+      maxAge: rememberMe ? 7 * 24 * 60 * 60 * 1000 : 60 * 60 * 1000 // 7 дней или 1 час
+    });
+    
+    res.json({ 
+      success: true,
+      user: { id: user.id, login: user.login, carwash_name: user.carwash_name }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ===== ВЫХОД (очистка cookie) =====
+app.post('/logout', (req, res) => {
+  res.clearCookie('auth_token');
+  res.json({ success: true });
+});
+
+// ===== ПРОВЕРКА СЕССИИ =====
+app.get('/me', auth, (req, res) => {
+  res.json({ user: req.user });
+});
+
 
 // ===== 404 ОБРАБОТЧИК =====
 app.use((req, res) => {
