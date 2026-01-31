@@ -300,22 +300,6 @@ app.get('/api/public/car-status', async (req, res) => {
   }
 });
 
-// ===== 404 ОБРАБОТЧИК =====
-app.use((req, res) => {
-  res.status(404).json({ error: 'Endpoint not found' });
-});
-
-// ===== ОБРАБОТЧИК ОШИБОК =====
-app.use((err, req, res, next) => {
-  console.error('Server error:', err);
-  res.status(500).json({ error: 'Internal server error' });
-});
-
-app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
-  console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
-});
-
 // ===== УДАЛИТЬ АВТО =====
 app.delete('/api/operator/cars/:id', auth, async (req, res) => {
   const carId = req.params.id;
@@ -379,4 +363,20 @@ app.put('/api/operator/cars/:id', auth, async (req, res) => {
     console.error('Ошибка обновления:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ===== 404 ОБРАБОТЧИК =====
+app.use((req, res) => {
+  res.status(404).json({ error: 'Endpoint not found' });
+});
+
+// ===== ОБРАБОТЧИК ОШИБОК =====
+app.use((err, req, res, next) => {
+  console.error('Server error:', err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
