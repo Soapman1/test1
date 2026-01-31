@@ -164,17 +164,23 @@ app.post('/api/operator/cars', auth, async (req, res) => {
   }
   
   const normalized = normalizePlate(plate_number);
-  const waitTimeNum = parseInt(wait_time) || 30;
+  const waitTimeNum = parseInt(wait_time) || 30;  // Сначала объявляем!
+  const createdAt = new Date();
+  const expiresAt = new Date(createdAt.getTime() + waitTimeNum * 60000);  // Потом используем
   
   try {
     const result = await pool.query(
-      `INSERT INTO cars (plate_number, plate_normalized, brand, wait_time, status, carwash_id)
-       VALUES ($1, $2, $3, $4, 'В очереди', $5)
-       RETURNING id, plate_number, status, wait_time`,
-      [plate_number.toUpperCase(), normalized, brand.toUpperCase(), waitTimeNum, carwashId]
+      `INSERT INTO cars (plate_number, plate_normalized, brand, wait_time, status, carwash_id, created_at)
+       VALUES ($1, $2, $3, $4, 'В очереди', $5, $6)
+       RETURNING id, plate_number, status, wait_time, created_at`,
+      [plate_number.toUpperCase(), normalized, brand.toUpperCase(), waitTimeNum, carwashId, createdAt]
     );
     
-    res.json(result.rows[0]);
+    // ✅ Возвращаем данные + время истечения (чтобы таймер работал точно)
+    res.json({
+      ...result.rows[0],
+      expires_at: expiresAt.toISOString()
+    });
   } catch (err) {
     console.error('Add car error:', err);
     res.status(500).json({ error: err.message });
