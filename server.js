@@ -45,7 +45,7 @@ const initDB = async () => {
         id SERIAL PRIMARY KEY,
         telegram_id BIGINT UNIQUE,
         login VARCHAR(50) UNIQUE NOT NULL,
-        passwordVARCHAR(100) NOT NULL,
+        password VARCHAR(100) NOT NULL,
         carwash_name VARCHAR(200),
         owner_name VARCHAR(200),
         subscription_end TIMESTAMP,
