@@ -190,6 +190,22 @@ app.put('/api/operator/cars/:id/status', auth, async (req, res) => {
   if (!status) return res.status(400).json({ error: 'Статус не указан' });
 
   try {
+    // Если статус "Завершено" - удаляем запись полностью
+    if (status === 'Завершено') {
+      const result = await pool.query(
+        'DELETE FROM cars WHERE id = $1 AND carwash_id = $2 RETURNING id, plate_number',
+        [carId, carwashId]
+      );
+      
+      if (result.rowCount === 0) {
+        return res.status(404).json({ error: 'Авто не найдено' });
+      }
+      
+      console.log(`Авто ${result.rows[0].plate_number} завершено и удалено`);
+      return res.json({ id: carId, status: 'Завершено', deleted: true });
+    }
+
+    // Обычное обновление статуса
     const result = await pool.query(
       'UPDATE cars SET status = $1 WHERE id = $2 AND carwash_id = $3 RETURNING id',
       [status, carId, carwashId]
