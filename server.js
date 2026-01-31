@@ -11,6 +11,8 @@ const PORT = process.env.PORT || 5000;
 
 
 app.use(cookieParser());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // ===== ПОДКЛЮЧЕНИЕ К POSTGRESQL =====
 const pool = new Pool({
@@ -146,7 +148,7 @@ app.post('/login', async (req, res) => {
       sameSite: 'strict',
       maxAge: rememberMe ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000
     });
-    
+
     res.json({
       token,
       user: {
