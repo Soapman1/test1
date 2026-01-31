@@ -304,38 +304,47 @@ app.put('/api/operator/cars/:id', auth, async (req, res) => {
 
 // ===== ВХОД С COOKIE =====
 app.post('/login', async (req, res) => {
-  const { login, password, rememberMe } = req.body;
-  
+  const { login, password, rememberMe = false } = req.body;
+
+  if (!login || !password) {
+    return res.status(400).json({ error: 'Логин и пароль обязательны' });
+  }
+
   try {
     const result = await pool.query('SELECT * FROM users WHERE login = $1', [login]);
     const user = result.rows[0];
-    
+
     if (!user || !await bcrypt.compare(password, user.password_hash || user.password)) {
       return res.status(400).json({ error: 'Неверный логин или пароль' });
     }
 
+    // Проверка подписки (если нужно)
+    const now = new Date();
+    if (!user.subscription_end || new Date(user.subscription_end) < now) {
+      return res.status(403).json({ error: 'Подписка истекла' });
+    }
+
+    // Генерация токена
     const token = jwt.sign(
-      { userId: user.id, carwashId: user.id, login: user.login },
+      { userId: user.id, carwashId: user.id, login: user.login, carwash_name: user.carwash_name },
       SECRET,
-      { expiresIn: rememberMe ? '7d' : '1h' } // Если "запомнить" - 7 дней, иначе 1 час
+      { expiresIn: rememberMe ? '7d' : '1h' }
     );
-    
-    // Устанавливаем httpOnly cookie (защита от XSS)
+
     res.cookie('auth_token', token, {
-      httpOnly: true,        // Недоступно для JS
-      secure: true,          // Только HTTPS (Render использует HTTPS)
-      sameSite: 'strict',    // Защита от CSRF
-      maxAge: rememberMe ? 7 * 24 * 60 * 60 * 1000 : 60 * 60 * 1000 // 7 дней или 1 час
+      httpOnly: true,
+      secure: true, // Render использует HTTPS
+      sameSite: 'strict',
+      maxAge: rememberMe ? 7 * 24 * 60 * 60 * 1000 : 60 * 60 * 1000
     });
-    
-    res.json({ 
-      success: true,
-      user: { id: user.id, login: user.login, carwash_name: user.carwash_name }
-    });
+
+    res.json({ success: true, user: { id: user.id, login: user.login, carwash_name: user.carwash_name } });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Ошибка входа:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
+
 
 
 // ===== ВЫХОД (очистка cookie) =====
