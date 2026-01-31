@@ -111,57 +111,6 @@ app.post('/register', async (req, res) => {
   }
 });
 
-// ===== ВХОД =====
-app.post('/login', async (req, res) => {
-  const { login, password } = req.body;
-  
-  console.log('Попытка входа:', login); // Debug
-  
-  try {
-    const result = await pool.query('SELECT * FROM users WHERE login = $1', [login]);
-    const user = result.rows[0];
-    
-    if (!user || !await bcrypt.compare(password, user.password_hash || user.password)) {
-      return res.status(400).json({ error: 'Неверный логин или пароль' });
-    }
-
-    // Проверка подписки
-    const now = new Date();
-    if (!user.subscription_end || new Date(user.subscription_end) < now) {
-      return res.status(403).json({ error: 'Подписка истекла. Активируйте через бот.' });
-    }
-
-    const token = jwt.sign(
-      {
-        userId: user.id,
-        carwashId: user.id, // Важно: используем id как carwash_id
-        login: user.login,
-        carwash_name: user.carwash_name
-      },
-      SECRET,
-       { expiresIn: rememberMe ? '7d' : '1d' }
-    );
-    
-    res.cookie('auth_token', token, {
-      httpOnly: true,
-      secure: true, // Render использует HTTPS
-      sameSite: 'strict',
-      maxAge: rememberMe ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000
-    });
-
-    res.json({
-      token,
-      user: {
-        id: user.id,
-        login: user.login,
-        carwash_name: user.carwash_name
-      }
-    });
-  } catch (err) {
-    console.error('Ошибка входа:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
-});
 
 // ===== MIDDLEWARE ПРОВЕРКИ ТОКЕНА (с cookie) =====
 const auth = (req, res, next) => {
