@@ -45,7 +45,7 @@ const initDB = async () => {
         id SERIAL PRIMARY KEY,
         telegram_id BIGINT UNIQUE,
         login VARCHAR(50) UNIQUE NOT NULL,
-        password VARCHAR(100) NOT NULL,
+        password_hash VARCHAR(100) NOT NULL,
         carwash_name VARCHAR(200),
         owner_name VARCHAR(200),
         subscription_end TIMESTAMP,
@@ -101,8 +101,8 @@ app.post('/register', async (req, res) => {
   try {
     const hash = await bcrypt.hash(password, 10);
     const result = await pool.query(
-      'INSERT INTO users (login, password, password_hash) VALUES ($1, $2, $3) RETURNING id',
-      [login, password, hash]
+      'INSERT INTO users (login, password_hash) VALUES ($1, $2) RETURNING id',
+      [login, hash]
     );
     res.json({ message: 'Пользователь создан', id: result.rows[0].id });
   } catch (err) {
@@ -314,7 +314,7 @@ app.post('/login', async (req, res) => {
     const result = await pool.query('SELECT * FROM users WHERE login = $1', [login]);
     const user = result.rows[0];
 
-    if (!user || !await bcrypt.compare(password, user.password_hash || user.password)) {
+    if (!user || !await bcrypt.compare(password, user.password_hash)) {
       return res.status(400).json({ error: 'Неверный логин или пароль' });
     }
 
