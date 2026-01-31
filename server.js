@@ -1,5 +1,4 @@
 const express = require('express');
-const bodyParser = require('body-parser');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
@@ -9,6 +8,9 @@ const cookieParser = require('cookie-parser');
 const app = express();
 const SECRET = process.env.JWT_SECRET || 'supersecret';
 const PORT = process.env.PORT || 5000;
+
+
+app.use(cookieParser());
 
 // ===== ПОДКЛЮЧЕНИЕ К POSTGRESQL =====
 const pool = new Pool({
@@ -26,8 +28,6 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-app.use(bodyParser.json());
-app.use(cookieParser());
 
 // ===== ЛОГИРОВАНИЕ (для отладки) =====
 app.use((req, res, next) => {
@@ -119,26 +119,8 @@ app.post('/login', async (req, res) => {
     const result = await pool.query('SELECT * FROM users WHERE login = $1', [login]);
     const user = result.rows[0];
     
-    if (!user) {
-      return res.status(400).json({ error: 'Неверный логин' });
-    }
-
-    // Проверка пароля (совместимость с ботом)
-    let match = false;
-    if (user.password_hash) {
-      match = await bcrypt.compare(password, user.password_hash);
-    } else {
-      // Пароль создан ботом (plain text) - для теста
-      match = (password === user.password);
-    }
-    
-    // Дополнительно можно проверить bcrypt hash если есть
-    if (!match && user.password.startsWith('$2')) {
-      match = await bcrypt.compare(password, user.password);
-    }
-
-    if (!match) {
-      return res.status(400).json({ error: 'Неверный пароль' });
+    if (!user || !await bcrypt.compare(password, user.password_hash || user.password)) {
+      return res.status(400).json({ error: 'Неверный логин или пароль' });
     }
 
     // Проверка подписки
@@ -155,8 +137,15 @@ app.post('/login', async (req, res) => {
         carwash_name: user.carwash_name
       },
       SECRET,
-      { expiresIn: '7d' }
+       { expiresIn: rememberMe ? '7d' : '1d' }
     );
+    
+    res.cookie('auth_token', token, {
+      httpOnly: true,
+      secure: true, // Render использует HTTPS
+      sameSite: 'strict',
+      maxAge: rememberMe ? 7 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000
+    });
     
     res.json({
       token,
