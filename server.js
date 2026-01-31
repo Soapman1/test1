@@ -281,7 +281,7 @@ app.get('/api/public/car-status', async (req, res) => {
   const normalized = normalizePlate(plate);
   
   try {
-    const result = await db.query(
+    const result = await pool.query(
       `SELECT plate_number, status, wait_time, created_at 
        FROM cars 
        WHERE plate_normalized = $1 
