@@ -240,7 +240,8 @@ app.get('/api/public/car-status', async (req, res) => {
   
   try {
     const result = await pool.query(
-      `SELECT plate_number, status, wait_time, created_at 
+      `SELECT plate_number, status, wait_time, created_at,
+              created_at + (wait_time || ' minutes')::interval as expires_at
        FROM cars 
        WHERE plate_normalized = $1 
        ORDER BY created_at DESC 
