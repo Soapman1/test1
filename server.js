@@ -315,3 +315,68 @@ app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
+
+// ===== УДАЛИТЬ АВТО =====
+app.delete('/api/operator/cars/:id', auth, async (req, res) => {
+  const carId = req.params.id;
+  const carwashId = req.user.carwashId;
+
+  try {
+    const result = await pool.query(
+      'DELETE FROM cars WHERE id = $1 AND carwash_id = $2 RETURNING id',
+      [carId, carwashId]
+    );
+    
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Авто не найдено' });
+    }
+
+    res.json({ message: 'Авто удалено', id: carId });
+  } catch (err) {
+    console.error('Ошибка удаления:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== РЕДАКТИРОВАТЬ АВТО =====
+app.put('/api/operator/cars/:id', auth, async (req, res) => {
+  const carId = req.params.id;
+  const { plate_number, brand, wait_time } = req.body;
+  const carwashId = req.user.carwashId;
+
+  if (!plate_number || !brand) {
+    return res.status(400).json({ error: 'Номер и марка обязательны' });
+  }
+
+  // Валидация номера
+  if (!isValidPlate(plate_number)) {
+    return res.status(400).json({ 
+      error: 'Неверный формат номера' 
+    });
+  }
+
+  const normalized = normalizePlate(plate_number);
+  const waitTimeNum = parseInt(wait_time) || 30;
+
+  try {
+    const result = await pool.query(
+      `UPDATE cars 
+       SET plate_number = $1, 
+           plate_normalized = $2, 
+           brand = $3, 
+           wait_time = $4 
+       WHERE id = $5 AND carwash_id = $6 
+       RETURNING id, plate_number, brand, wait_time, status`,
+      [plate_number.toUpperCase(), normalized, brand.toUpperCase(), waitTimeNum, carId, carwashId]
+    );
+    
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Авто не найдено' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Ошибка обновления:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
