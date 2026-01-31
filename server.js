@@ -314,11 +314,26 @@ app.post('/login', async (req, res) => {
     const result = await pool.query('SELECT * FROM users WHERE login = $1', [login]);
     const user = result.rows[0];
 
-    if (!user || !await bcrypt.compare(password, user.password)) {
+     if (!user) {
       return res.status(400).json({ error: 'Неверный логин или пароль' });
     }
 
-    // Проверка подписки (если нужно)
+    // ✅ Проверка пароля: сначала как хеш (bcrypt), потом как plain text (для бота)
+    let passwordValid = false;
+    
+    if (user.password.startsWith('$2b$') || user.password.startsWith('$2a$')) {
+      // Это bcrypt хеш
+      passwordValid = await bcrypt.compare(password, user.password);
+    } else {
+      // Это plain text пароль от Telegram бота
+      passwordValid = (password === user.password);
+    }
+
+    if (!passwordValid) {
+      return res.status(400).json({ error: 'Неверный логин или пароль' });
+    }
+
+    // Проверка подписки
     const now = new Date();
     if (!user.subscription_end || new Date(user.subscription_end) < now) {
       return res.status(403).json({ error: 'Подписка истекла' });
@@ -333,12 +348,15 @@ app.post('/login', async (req, res) => {
 
     res.cookie('auth_token', token, {
       httpOnly: true,
-      secure: true, // Render использует HTTPS
+      secure: true,
       sameSite: 'strict',
       maxAge: rememberMe ? 7 * 24 * 60 * 60 * 1000 : 60 * 60 * 1000
     });
 
-    res.json({ success: true, user: { id: user.id, login: user.login, carwash_name: user.carwash_name } });
+    res.json({ 
+      success: true, 
+      user: { id: user.id, login: user.login, carwash_name: user.carwash_name } 
+    });
   } catch (err) {
     console.error('Ошибка входа:', err);
     res.status(500).json({ error: 'Ошибка сервера' });
