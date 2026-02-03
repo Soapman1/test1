@@ -476,14 +476,9 @@ app.get('/me', auth, (req, res) => {
   res.json({ user: req.user });
 });
 
-// ===== 404 ДЛЯ API (только /api/*) =====
-//app.use('/api', (req, res) => {
-//  res.status(404).json({ error: 'API endpoint not found' });
-//});
-
-// ===== CATCH-ALL ДЛЯ REACT ROUTER (в самом конце!) =====
+// ===== 404 ОБРАБОТЧИК =====
 app.use((req, res) => {
-  res.sendFile(path.join(__dirname, 'build', 'index.html'));
+  res.status(404).json({ error: 'Endpoint not found' });
 });
 
 // ===== ОБРАБОТЧИК ОШИБОК =====
@@ -492,8 +487,6 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// ===== ЗАПУСК (ТОЛЬКО ОДИН РАЗ!) =====
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
-  console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
