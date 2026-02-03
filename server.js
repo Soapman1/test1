@@ -386,7 +386,76 @@ app.post('/login', async (req, res) => {
   }
 });
 
+// ===== ПРОВЕРКА АДМИНА =====
+const isAdmin = (req, res, next) => {
+  if (req.user.login !== process.env.ADMIN_LOGIN) {
+    return res.status(403).json({ error: 'Нет прав администратора' });
+  }
+  next();
+};
 
+// ===== АДМИН API =====
+
+// Получить всех пользователей
+app.get('/api/admin/users', auth, isAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, login, carwash_name, owner_name, subscription_end, is_active, created_at 
+       FROM users 
+       ORDER BY created_at DESC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Ошибка получения пользователей:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Удалить пользователя
+app.delete('/api/admin/users/:id', auth, isAdmin, async (req, res) => {
+  const userId = req.params.id;
+  
+  try {
+    // Нельзя удалить самого себя
+    if (parseInt(userId) === req.user.userId) {
+      return res.status(400).json({ error: 'Нельзя удалить самого себя' });
+    }
+    
+    await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+    res.json({ message: 'Пользователь удален' });
+  } catch (err) {
+    console.error('Ошибка удаления:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Продлить подписку пользователю
+app.post('/api/admin/users/:id/extend', auth, isAdmin, async (req, res) => {
+  const userId = req.params.id;
+  const { days } = req.body;
+  
+  if (!days || days <= 0) {
+    return res.status(400).json({ error: 'Укажите количество дней' });
+  }
+  
+  try {
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + parseInt(days));
+    
+    await pool.query(
+      'UPDATE users SET subscription_end = $1, is_active = true WHERE id = $2',
+      [endDate, userId]
+    );
+    
+    res.json({ 
+      message: 'Подписка продлена', 
+      subscription_end: endDate 
+    });
+  } catch (err) {
+    console.error('Ошибка продления:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ===== ВЫХОД (очистка cookie) =====
 app.post('/logout', (req, res) => {
