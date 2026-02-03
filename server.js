@@ -11,11 +11,12 @@ const SECRET = process.env.JWT_SECRET || 'supersecret';
 const PORT = process.env.PORT || 5000;
 
 
+// ===== ОТДАЧА СТАТИЧЕСКИХ ФАЙЛОВ (ВАЖНО: ДО всех роутов!) =====
+app.use(express.static(path.join(__dirname, 'build')));
+
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-// ===== ОТДАЧА СТАТИЧЕСКИХ ФАЙЛОВ (ВАЖНО: ДО всех роутов!) =====
-app.use(express.static(path.join(__dirname, 'build')));
 
 // ===== ПОДКЛЮЧЕНИЕ К POSTGRESQL =====
 const pool = new Pool({
