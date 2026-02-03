@@ -4,6 +4,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 const cookieParser = require('cookie-parser');
+const path = require('path');
 
 const app = express();
 const SECRET = process.env.JWT_SECRET || 'supersecret';
@@ -455,6 +456,15 @@ app.post('/api/admin/users/:id/extend', auth, isAdmin, async (req, res) => {
     console.error('Ошибка продления:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ===== ПОДДЕРЖКА BROWSER ROUTER =====
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'build', 'index.html'));
+});
+
+app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
 });
 
 // ===== ВЫХОД (очистка cookie) =====
