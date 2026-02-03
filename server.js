@@ -23,6 +23,9 @@ const pool = new Pool({
   }
 });
 
+// ===== ОТДАЧА СТАТИЧЕСКИХ ФАЙЛОВ (ВАЖНО: ДО всех роутов!) =====
+app.use(express.static(path.join(__dirname, 'build')));
+
 // ===== CORS ДЛЯ REACT =====
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'https://car-status-frontend.onrender.com', 
@@ -458,10 +461,6 @@ app.post('/api/admin/users/:id/extend', auth, isAdmin, async (req, res) => {
   }
 });
 
-// ===== ПОДДЕРЖКА BROWSER ROUTER =====
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'build', 'index.html'));
-});
 
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
@@ -493,4 +492,8 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
+});
+
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'build', 'index.html'));
 });
