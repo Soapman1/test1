@@ -477,9 +477,9 @@ app.get('/me', auth, (req, res) => {
 });
 
 // ===== 404 ДЛЯ API (только /api/*) =====
-app.use('/api', (req, res) => {
-  res.status(404).json({ error: 'API endpoint not found' });
-});
+//app.use('/api', (req, res) => {
+//  res.status(404).json({ error: 'API endpoint not found' });
+//});
 
 // ===== CATCH-ALL ДЛЯ REACT ROUTER (в самом конце!) =====
 app.use((req, res) => {
